@@ -15,12 +15,14 @@ const {
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
+  ChannelSelectMenuBuilder,
+  RoleSelectMenuBuilder
 } = require('discord.js');
 
 /* ==========================================================================
-   STOCKAGE : tout est sauvegarde dans de simples fichiers JSON.
-   Un fichier de config + un fichier de tickets par serveur Discord.
+   STOCKAGE : simples fichiers JSON, un fichier de config + un fichier de
+   tickets par serveur Discord.
    ========================================================================== */
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -45,41 +47,28 @@ const DEFAULT_CONFIG = {
     logChannelId: null
   }
 };
-
 const DEFAULT_TICKETS = { pending: {}, active: {} };
 
 function readJson(filePath, fallback) {
   if (!fs.existsSync(filePath)) return JSON.parse(JSON.stringify(fallback));
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (err) {
-    console.error(`Erreur de lecture de ${filePath} :`, err);
-    return JSON.parse(JSON.stringify(fallback));
-  }
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+  catch (err) { console.error(`Erreur de lecture de ${filePath} :`, err); return JSON.parse(JSON.stringify(fallback)); }
 }
-function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-}
+function writeJson(filePath, data) { fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8'); }
 function getGuildConfig(guildId) {
-  const filePath = path.join(DATA_DIR, `config_${guildId}.json`);
-  const config = readJson(filePath, DEFAULT_CONFIG);
+  const config = readJson(path.join(DATA_DIR, `config_${guildId}.json`), DEFAULT_CONFIG);
   config.welcome = { ...DEFAULT_CONFIG.welcome, ...config.welcome };
   config.tickets = { ...DEFAULT_CONFIG.tickets, ...config.tickets };
   return config;
 }
-function saveGuildConfig(guildId, config) {
-  writeJson(path.join(DATA_DIR, `config_${guildId}.json`), config);
-}
+function saveGuildConfig(guildId, config) { writeJson(path.join(DATA_DIR, `config_${guildId}.json`), config); }
 function getTickets(guildId) {
-  const filePath = path.join(DATA_DIR, `tickets_${guildId}.json`);
-  const tickets = readJson(filePath, DEFAULT_TICKETS);
+  const tickets = readJson(path.join(DATA_DIR, `tickets_${guildId}.json`), DEFAULT_TICKETS);
   tickets.pending = tickets.pending || {};
   tickets.active = tickets.active || {};
   return tickets;
 }
-function saveTickets(guildId, tickets) {
-  writeJson(path.join(DATA_DIR, `tickets_${guildId}.json`), tickets);
-}
+function saveTickets(guildId, tickets) { writeJson(path.join(DATA_DIR, `tickets_${guildId}.json`), tickets); }
 
 /* ==========================================================================
    PETITES FONCTIONS UTILES
@@ -109,68 +98,151 @@ function buildWelcomeEmbed(member, w) {
   embed.setTimestamp();
   return embed;
 }
-function generateTicketId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
+function generateTicketId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function sanitizeChannelName(username) {
-  const clean = username
-    .toLowerCase()
+  const clean = username.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   return `ticket-${clean || 'membre'}`.slice(0, 90);
 }
 
 /* ==========================================================================
-   DEFINITION DES COMMANDES SLASH (/welcome, /ticket-setup, /rename-ticket)
+   PANNEAU DE BIENVENUE (/panel-arrivee)
+   ========================================================================== */
+
+function buildWelcomePanel(guildId) {
+  const config = getGuildConfig(guildId);
+  const w = config.welcome;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎉 Panneau de configuration - Bienvenue')
+    .setColor(parseColor(w.color))
+    .setDescription([
+      `**Statut :** ${w.enabled ? '🟢 Active' : '🔴 Desactive'}`,
+      `**Salon :** ${w.channelId ? `<#${w.channelId}>` : 'Non defini'}`,
+      `**Couleur :** ${w.color}`,
+      `**Avatar en miniature :** ${w.thumbnailEnabled ? 'Oui' : 'Non'}`,
+      `**Image :** ${w.image ? 'Definie' : 'Aucune'}`,
+      '',
+      `**Titre actuel :** ${w.title}`,
+      `**Description actuelle :** ${w.description}`,
+      `**Footer actuel :** ${w.footer || 'Aucun'}`,
+      '',
+      '_Placeholders utilisables dans le texte : {user} {username} {server} {membercount}_'
+    ].join('\n'));
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('wp_channel').setLabel('Salon').setEmoji('📌').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('wp_toggle').setLabel(w.enabled ? 'Desactiver' : 'Activer').setStyle(w.enabled ? ButtonStyle.Danger : ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('wp_avatar').setLabel(`Avatar : ${w.thumbnailEnabled ? 'ON' : 'OFF'}`).setStyle(ButtonStyle.Secondary)
+  );
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('wp_message').setLabel('Message').setEmoji('✏️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('wp_color').setLabel('Couleur').setEmoji('🎨').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('wp_image').setLabel('Image').setEmoji('🖼️').setStyle(ButtonStyle.Primary)
+  );
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('wp_test').setLabel('Tester').setEmoji('🔎').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('wp_close').setLabel('Fermer').setEmoji('✖️').setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embeds: [embed], components: [row1, row2, row3] };
+}
+
+function buildBackRow(customId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(customId).setLabel('Retour').setEmoji('⬅️').setStyle(ButtonStyle.Secondary)
+  );
+}
+
+/* ==========================================================================
+   PANNEAU DE TICKETS (/ticket)
+   ========================================================================== */
+
+function buildTicketPanel(guildId) {
+  const config = getGuildConfig(guildId);
+  const t = config.tickets;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎫 Panneau de configuration - Tickets')
+    .setColor('#5865F2')
+    .setDescription([
+      `**Salon du panneau ticket :** ${t.panelChannelId ? `<#${t.panelChannelId}>` : 'Non defini'}`,
+      `**Categorie des tickets :** ${t.categoryId ? `<#${t.categoryId}>` : 'Aucune (crees a la racine)'}`,
+      `**Roles pingues a chaque demande :** ${t.pingRoles.length ? t.pingRoles.map(id => `<@&${id}>`).join(', ') : 'Aucun'}`,
+      `**Roles avec acces (accepter/renommer/fermer) :** ${t.accessRoles.length ? t.accessRoles.map(id => `<@&${id}>`).join(', ') : 'Aucun'}`,
+      `**Salon de logs (justifications de fermeture) :** ${t.logChannelId ? `<#${t.logChannelId}>` : 'Non configure'}`
+    ].join('\n'));
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('tp_channel').setLabel('Salon du panneau').setEmoji('📌').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('tp_pingroles').setLabel('Roles a ping').setEmoji('🔔').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('tp_accessroles').setLabel('Roles avec acces').setEmoji('🛡️').setStyle(ButtonStyle.Secondary)
+  );
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('tp_category').setLabel('Categorie').setEmoji('📁').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('tp_logs').setLabel('Logs').setEmoji('📝').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('tp_close').setLabel('Fermer').setEmoji('✖️').setStyle(ButtonStyle.Secondary)
+  );
+
+  return { embeds: [embed], components: [row1, row2] };
+}
+
+/* ==========================================================================
+   COMMANDE /help
+   ========================================================================== */
+
+function buildHelpEmbed() {
+  return new EmbedBuilder()
+    .setTitle('📖 Aide - Liste des commandes')
+    .setColor('#5865F2')
+    .addFields(
+      {
+        name: '/panel-arrivee',
+        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de bienvenue : salon, activer/desactiver, texte du message, couleur, image, avatar, et tester un apercu.'
+      },
+      {
+        name: '/ticket',
+        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de tickets : salon ou publier le bouton "Creer un ticket", roles pingues, roles avec acces aux tickets, categorie, salon de logs.'
+      },
+      {
+        name: '/rename-ticket <nom>',
+        value: 'A utiliser uniquement dans un salon de ticket deja ouvert. Renomme ce salon. Reserve aux membres ayant un role avec acces aux tickets.'
+      },
+      {
+        name: '/help',
+        value: 'Affiche ce message.'
+      },
+      {
+        name: 'Comment fonctionne un ticket ?',
+        value: '1) Un membre clique sur "Creer un ticket" dans le salon configure et decrit son probleme.\n2) La demande est postee avec les roles pingues et deux boutons Accepter/Refuser.\n3) Un membre avec acces clique Accepter : un salon prive est cree pour ce membre.\n4) Dans ce salon, `/rename-ticket` permet de le renommer, et le bouton "Fermer le ticket" demande une justification avant de fermer (envoyee dans le salon de logs si configure).'
+      }
+    );
+}
+
+/* ==========================================================================
+   DEFINITION DES COMMANDES SLASH
    ========================================================================== */
 
 const commandsData = [
   new SlashCommandBuilder()
-    .setName('welcome')
-    .setDescription('Configurer le systeme de message de bienvenue')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand(sub => sub.setName('channel').setDescription('Definit le salon de bienvenue')
-      .addChannelOption(opt => opt.setName('salon').setDescription('Le salon').addChannelTypes(ChannelType.GuildText).setRequired(true)))
-    .addSubcommand(sub => sub.setName('toggle').setDescription('Active ou desactive le systeme')
-      .addBooleanOption(opt => opt.setName('actif').setDescription('true/false').setRequired(true)))
-    .addSubcommand(sub => sub.setName('message').setDescription('Personnaliser titre/description/footer (formulaire)'))
-    .addSubcommand(sub => sub.setName('couleur').setDescription('Couleur de l\'embed')
-      .addStringOption(opt => opt.setName('hex').setDescription('Ex: #5865F2').setRequired(true)))
-    .addSubcommand(sub => sub.setName('image').setDescription('Image/banniere ("reset" pour retirer)')
-      .addStringOption(opt => opt.setName('url').setDescription('URL ou "reset"').setRequired(true)))
-    .addSubcommand(sub => sub.setName('avatar').setDescription('Afficher l\'avatar en miniature')
-      .addBooleanOption(opt => opt.setName('actif').setDescription('true/false').setRequired(true)))
-    .addSubcommand(sub => sub.setName('test').setDescription('Envoie un apercu'))
-    .addSubcommand(sub => sub.setName('status').setDescription('Affiche la configuration actuelle')),
+    .setName('panel-arrivee')
+    .setDescription('Ouvre le panneau de configuration du systeme de bienvenue')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
-    .setName('ticket-setup')
-    .setDescription('Configurer le systeme de tickets')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand(sub => sub.setName('panel').setDescription('Publie le panneau de creation de ticket')
-      .addChannelOption(opt => opt.setName('salon').setDescription('Salon du panneau').addChannelTypes(ChannelType.GuildText).setRequired(true))
-      .addStringOption(opt => opt.setName('titre').setDescription('Titre du panneau').setRequired(false))
-      .addStringOption(opt => opt.setName('description').setDescription('Description du panneau').setRequired(false)))
-    .addSubcommand(sub => sub.setName('add-ping-role').setDescription('Ajoute un role a ping a chaque demande')
-      .addRoleOption(opt => opt.setName('role').setDescription('Le role').setRequired(true)))
-    .addSubcommand(sub => sub.setName('remove-ping-role').setDescription('Retire un role pingue')
-      .addRoleOption(opt => opt.setName('role').setDescription('Le role').setRequired(true)))
-    .addSubcommand(sub => sub.setName('add-access-role').setDescription('Ajoute un role qui gere les tickets')
-      .addRoleOption(opt => opt.setName('role').setDescription('Le role').setRequired(true)))
-    .addSubcommand(sub => sub.setName('remove-access-role').setDescription('Retire un role de la gestion des tickets')
-      .addRoleOption(opt => opt.setName('role').setDescription('Le role').setRequired(true)))
-    .addSubcommand(sub => sub.setName('category').setDescription('Categorie ou seront crees les salons de tickets')
-      .addChannelOption(opt => opt.setName('categorie').setDescription('La categorie').addChannelTypes(ChannelType.GuildCategory).setRequired(true)))
-    .addSubcommand(sub => sub.setName('logs').setDescription('Salon de logs des fermetures de tickets')
-      .addChannelOption(opt => opt.setName('salon').setDescription('Vide = desactive').addChannelTypes(ChannelType.GuildText).setRequired(false)))
-    .addSubcommand(sub => sub.setName('status').setDescription('Affiche la configuration actuelle')),
+    .setName('ticket')
+    .setDescription('Ouvre le panneau de configuration du systeme de tickets')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
     .setName('rename-ticket')
     .setDescription('Renomme le salon de ticket actuel')
-    .addStringOption(opt => opt.setName('nom').setDescription('Nouveau nom').setRequired(true).setMaxLength(90))
+    .addStringOption(opt => opt.setName('nom').setDescription('Nouveau nom').setRequired(true).setMaxLength(90)),
+
+  new SlashCommandBuilder()
+    .setName('help')
+    .setDescription('Affiche la liste des commandes et leur utilisation')
 ];
 
 /* ==========================================================================
@@ -178,17 +250,11 @@ const commandsData = [
    ========================================================================== */
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages]
 });
 
 client.once('clientReady', async () => {
   console.log(`Connecte en tant que ${client.user.tag} !`);
-
-  // Enregistrement automatique des commandes slash au demarrage
   try {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     const body = commandsData.map(c => c.toJSON());
@@ -204,8 +270,6 @@ client.once('clientReady', async () => {
   }
 });
 
-/* ---------------- Message de bienvenue a l'arrivee d'un membre ---------------- */
-
 client.on('guildMemberAdd', async (member) => {
   const config = getGuildConfig(member.guild.id);
   const w = config.welcome;
@@ -213,23 +277,29 @@ client.on('guildMemberAdd', async (member) => {
   const channel = member.guild.channels.cache.get(w.channelId);
   if (!channel) return;
   try {
-    const embed = buildWelcomeEmbed(member, w);
-    await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
+    await channel.send({ content: `<@${member.id}>`, embeds: [buildWelcomeEmbed(member, w)] });
   } catch (err) {
     console.error('Erreur envoi message de bienvenue :', err);
   }
 });
 
-/* ---------------- Toutes les interactions (commandes, boutons, formulaires) ---------------- */
-
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'welcome') return handleWelcomeCommand(interaction);
-      if (interaction.commandName === 'ticket-setup') return handleTicketSetupCommand(interaction);
+      if (interaction.commandName === 'panel-arrivee') {
+        return interaction.reply({ ...buildWelcomePanel(interaction.guild.id), ephemeral: true });
+      }
+      if (interaction.commandName === 'ticket') {
+        return interaction.reply({ ...buildTicketPanel(interaction.guild.id), ephemeral: true });
+      }
       if (interaction.commandName === 'rename-ticket') return handleRenameTicketCommand(interaction);
+      if (interaction.commandName === 'help') {
+        return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
+      }
     } else if (interaction.isButton()) {
       return handleButton(interaction);
+    } else if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
+      return handleSelectMenu(interaction);
     } else if (interaction.isModalSubmit()) {
       return handleModal(interaction);
     }
@@ -242,182 +312,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 /* ==========================================================================
-   COMMANDE /welcome
-   ========================================================================== */
-
-async function handleWelcomeCommand(interaction) {
-  const sub = interaction.options.getSubcommand();
-  const config = getGuildConfig(interaction.guild.id);
-
-  if (sub === 'channel') {
-    const channel = interaction.options.getChannel('salon');
-    config.welcome.channelId = channel.id;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `Le salon de bienvenue est maintenant ${channel}.`, ephemeral: true });
-  }
-
-  if (sub === 'toggle') {
-    const actif = interaction.options.getBoolean('actif');
-    if (actif && !config.welcome.channelId) {
-      return interaction.reply({ content: 'Configure d\'abord un salon avec `/welcome channel`.', ephemeral: true });
-    }
-    config.welcome.enabled = actif;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `Systeme de bienvenue ${actif ? 'active' : 'desactive'}.`, ephemeral: true });
-  }
-
-  if (sub === 'message') {
-    const modal = new ModalBuilder().setCustomId('welcome_message_modal').setTitle('Personnaliser le message de bienvenue');
-    const titleInput = new TextInputBuilder().setCustomId('welcome_title').setLabel('Titre ({user} {username} {server} {membercount})')
-      .setStyle(TextInputStyle.Short).setValue(config.welcome.title || '').setRequired(true).setMaxLength(256);
-    const descInput = new TextInputBuilder().setCustomId('welcome_description').setLabel('Description')
-      .setStyle(TextInputStyle.Paragraph).setValue(config.welcome.description || '').setRequired(true).setMaxLength(2000);
-    const footerInput = new TextInputBuilder().setCustomId('welcome_footer').setLabel('Footer (optionnel)')
-      .setStyle(TextInputStyle.Short).setValue(config.welcome.footer || '').setRequired(false).setMaxLength(256);
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(titleInput),
-      new ActionRowBuilder().addComponents(descInput),
-      new ActionRowBuilder().addComponents(footerInput)
-    );
-    return interaction.showModal(modal);
-  }
-
-  if (sub === 'couleur') {
-    const hex = interaction.options.getString('hex');
-    if (isNaN(parseInt(hex.replace('#', ''), 16))) {
-      return interaction.reply({ content: 'Couleur invalide, exemple : `#5865F2`', ephemeral: true });
-    }
-    config.welcome.color = hex;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `Couleur mise a jour : ${hex}`, ephemeral: true });
-  }
-
-  if (sub === 'image') {
-    const url = interaction.options.getString('url');
-    if (url.toLowerCase() === 'reset') {
-      config.welcome.image = null;
-      saveGuildConfig(interaction.guild.id, config);
-      return interaction.reply({ content: 'Image retiree.', ephemeral: true });
-    }
-    if (!/^https?:\/\/.+/i.test(url)) {
-      return interaction.reply({ content: 'URL invalide (ou "reset").', ephemeral: true });
-    }
-    config.welcome.image = url;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: 'Image mise a jour.', ephemeral: true });
-  }
-
-  if (sub === 'avatar') {
-    const actif = interaction.options.getBoolean('actif');
-    config.welcome.thumbnailEnabled = actif;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `Miniature avatar ${actif ? 'activee' : 'desactivee'}.`, ephemeral: true });
-  }
-
-  if (sub === 'test') {
-    if (!config.welcome.channelId) return interaction.reply({ content: 'Aucun salon configure.', ephemeral: true });
-    const channel = interaction.guild.channels.cache.get(config.welcome.channelId);
-    if (!channel) return interaction.reply({ content: 'Salon introuvable.', ephemeral: true });
-    await channel.send({ embeds: [buildWelcomeEmbed(interaction.member, config.welcome)] });
-    return interaction.reply({ content: `Apercu envoye dans ${channel}.`, ephemeral: true });
-  }
-
-  if (sub === 'status') {
-    const w = config.welcome;
-    return interaction.reply({
-      content: [
-        `**Systeme de bienvenue**`,
-        `Statut : ${w.enabled ? 'Active' : 'Desactive'}`,
-        `Salon : ${w.channelId ? `<#${w.channelId}>` : 'Non configure'}`,
-        `Couleur : ${w.color}`,
-        `Avatar : ${w.thumbnailEnabled ? 'Oui' : 'Non'}`,
-        `Image : ${w.image || 'Aucune'}`,
-        `Titre : ${w.title}`,
-        `Description : ${w.description}`,
-        `Footer : ${w.footer || 'Aucun'}`
-      ].join('\n'),
-      ephemeral: true
-    });
-  }
-}
-
-/* ==========================================================================
-   COMMANDE /ticket-setup
-   ========================================================================== */
-
-async function handleTicketSetupCommand(interaction) {
-  const sub = interaction.options.getSubcommand();
-  const config = getGuildConfig(interaction.guild.id);
-
-  if (sub === 'panel') {
-    const channel = interaction.options.getChannel('salon');
-    const titre = interaction.options.getString('titre') || 'Support - Creation de ticket';
-    const description = interaction.options.getString('description')
-      || 'Clique sur le bouton ci-dessous et decris ton probleme pour ouvrir un ticket.';
-    const embed = new EmbedBuilder().setTitle(titre).setDescription(description).setColor('#5865F2');
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ticket_create').setLabel('Creer un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary)
-    );
-    await channel.send({ embeds: [embed], components: [row] });
-    config.tickets.panelChannelId = channel.id;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `Panneau publie dans ${channel}.`, ephemeral: true });
-  }
-
-  if (sub === 'add-ping-role') {
-    const role = interaction.options.getRole('role');
-    if (!config.tickets.pingRoles.includes(role.id)) config.tickets.pingRoles.push(role.id);
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `${role} sera pingue a chaque demande de ticket.`, ephemeral: true });
-  }
-  if (sub === 'remove-ping-role') {
-    const role = interaction.options.getRole('role');
-    config.tickets.pingRoles = config.tickets.pingRoles.filter(id => id !== role.id);
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `${role} retire.`, ephemeral: true });
-  }
-  if (sub === 'add-access-role') {
-    const role = interaction.options.getRole('role');
-    if (!config.tickets.accessRoles.includes(role.id)) config.tickets.accessRoles.push(role.id);
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `${role} peut gerer les tickets.`, ephemeral: true });
-  }
-  if (sub === 'remove-access-role') {
-    const role = interaction.options.getRole('role');
-    config.tickets.accessRoles = config.tickets.accessRoles.filter(id => id !== role.id);
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `${role} retire de la gestion des tickets.`, ephemeral: true });
-  }
-  if (sub === 'category') {
-    const category = interaction.options.getChannel('categorie');
-    config.tickets.categoryId = category.id;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: `Salons de tickets crees dans **${category.name}**.`, ephemeral: true });
-  }
-  if (sub === 'logs') {
-    const channel = interaction.options.getChannel('salon');
-    config.tickets.logChannelId = channel ? channel.id : null;
-    saveGuildConfig(interaction.guild.id, config);
-    return interaction.reply({ content: channel ? `Logs envoyes dans ${channel}.` : 'Logs desactives.', ephemeral: true });
-  }
-  if (sub === 'status') {
-    const t = config.tickets;
-    return interaction.reply({
-      content: [
-        `**Systeme de tickets**`,
-        `Panneau : ${t.panelChannelId ? `<#${t.panelChannelId}>` : 'Non publie'}`,
-        `Categorie : ${t.categoryId ? `<#${t.categoryId}>` : 'Aucune'}`,
-        `Roles pingues : ${t.pingRoles.length ? t.pingRoles.map(id => `<@&${id}>`).join(', ') : 'Aucun'}`,
-        `Roles avec acces : ${t.accessRoles.length ? t.accessRoles.map(id => `<@&${id}>`).join(', ') : 'Aucun'}`,
-        `Logs : ${t.logChannelId ? `<#${t.logChannelId}>` : 'Non configure'}`
-      ].join('\n'),
-      ephemeral: true
-    });
-  }
-}
-
-/* ==========================================================================
-   COMMANDE /rename-ticket
+   /rename-ticket
    ========================================================================== */
 
 async function handleRenameTicketCommand(interaction) {
@@ -440,12 +335,155 @@ async function handleRenameTicketCommand(interaction) {
 }
 
 /* ==========================================================================
-   BOUTONS (creer / accepter / refuser / fermer un ticket)
+   BOUTONS
    ========================================================================== */
 
 async function handleButton(interaction) {
   const { customId } = interaction;
 
+  // ---- Panneau de bienvenue ----
+  if (customId === 'wp_back') {
+    return interaction.update(buildWelcomePanel(interaction.guild.id));
+  }
+  if (customId === 'wp_channel') {
+    const select = new ChannelSelectMenuBuilder()
+      .setCustomId('wp_channel_select')
+      .setPlaceholder('Choisis le salon de bienvenue')
+      .addChannelTypes(ChannelType.GuildText);
+    return interaction.update({
+      embeds: [new EmbedBuilder().setTitle('📌 Choisir le salon de bienvenue').setColor('#5865F2')],
+      components: [new ActionRowBuilder().addComponents(select), buildBackRow('wp_back')]
+    });
+  }
+  if (customId === 'wp_toggle') {
+    const config = getGuildConfig(interaction.guild.id);
+    if (!config.welcome.enabled && !config.welcome.channelId) {
+      return interaction.reply({ content: 'Configure d\'abord un salon avant d\'activer le systeme (bouton "Salon").', ephemeral: true });
+    }
+    config.welcome.enabled = !config.welcome.enabled;
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildWelcomePanel(interaction.guild.id));
+  }
+  if (customId === 'wp_avatar') {
+    const config = getGuildConfig(interaction.guild.id);
+    config.welcome.thumbnailEnabled = !config.welcome.thumbnailEnabled;
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildWelcomePanel(interaction.guild.id));
+  }
+  if (customId === 'wp_message') {
+    const config = getGuildConfig(interaction.guild.id);
+    const modal = new ModalBuilder().setCustomId('welcome_message_modal').setTitle('Personnaliser le message de bienvenue');
+    const titleInput = new TextInputBuilder().setCustomId('welcome_title').setLabel('Titre ({user} {username} {server} {membercount})')
+      .setStyle(TextInputStyle.Short).setValue(config.welcome.title || '').setRequired(true).setMaxLength(256);
+    const descInput = new TextInputBuilder().setCustomId('welcome_description').setLabel('Description')
+      .setStyle(TextInputStyle.Paragraph).setValue(config.welcome.description || '').setRequired(true).setMaxLength(2000);
+    const footerInput = new TextInputBuilder().setCustomId('welcome_footer').setLabel('Footer (optionnel)')
+      .setStyle(TextInputStyle.Short).setValue(config.welcome.footer || '').setRequired(false).setMaxLength(256);
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(titleInput),
+      new ActionRowBuilder().addComponents(descInput),
+      new ActionRowBuilder().addComponents(footerInput)
+    );
+    return interaction.showModal(modal);
+  }
+  if (customId === 'wp_color') {
+    const config = getGuildConfig(interaction.guild.id);
+    const modal = new ModalBuilder().setCustomId('welcome_color_modal').setTitle('Couleur du message de bienvenue');
+    const colorInput = new TextInputBuilder().setCustomId('welcome_color_value').setLabel('Code couleur hexadecimal (ex: #5865F2)')
+      .setStyle(TextInputStyle.Short).setValue(config.welcome.color || '#5865F2').setRequired(true).setMaxLength(7);
+    modal.addComponents(new ActionRowBuilder().addComponents(colorInput));
+    return interaction.showModal(modal);
+  }
+  if (customId === 'wp_image') {
+    const config = getGuildConfig(interaction.guild.id);
+    const modal = new ModalBuilder().setCustomId('welcome_image_modal').setTitle('Image du message de bienvenue');
+    const imageInput = new TextInputBuilder().setCustomId('welcome_image_value').setLabel('URL de l\'image (ou "reset" pour retirer)')
+      .setStyle(TextInputStyle.Short).setValue(config.welcome.image || '').setRequired(false).setMaxLength(500);
+    modal.addComponents(new ActionRowBuilder().addComponents(imageInput));
+    return interaction.showModal(modal);
+  }
+  if (customId === 'wp_test') {
+    const config = getGuildConfig(interaction.guild.id);
+    if (!config.welcome.channelId) return interaction.reply({ content: 'Aucun salon configure.', ephemeral: true });
+    const channel = interaction.guild.channels.cache.get(config.welcome.channelId);
+    if (!channel) return interaction.reply({ content: 'Salon introuvable.', ephemeral: true });
+    await channel.send({ embeds: [buildWelcomeEmbed(interaction.member, config.welcome)] });
+    await interaction.update(buildWelcomePanel(interaction.guild.id));
+    return interaction.followUp({ content: `Apercu envoye dans ${channel}.`, ephemeral: true });
+  }
+  if (customId === 'wp_close') {
+    return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
+  }
+
+  // ---- Panneau de tickets ----
+  if (customId === 'tp_back') {
+    return interaction.update(buildTicketPanel(interaction.guild.id));
+  }
+  if (customId === 'tp_channel') {
+    const select = new ChannelSelectMenuBuilder()
+      .setCustomId('tp_channel_select')
+      .setPlaceholder('Choisis le salon ou publier le bouton "Creer un ticket"')
+      .addChannelTypes(ChannelType.GuildText);
+    return interaction.update({
+      embeds: [new EmbedBuilder().setTitle('📌 Choisir le salon du panneau ticket').setColor('#5865F2')],
+      components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
+    });
+  }
+  if (customId === 'tp_pingroles') {
+    const select = new RoleSelectMenuBuilder()
+      .setCustomId('tp_pingroles_select')
+      .setPlaceholder('Choisis les roles a ping (0 a 10)')
+      .setMinValues(0).setMaxValues(10);
+    return interaction.update({
+      embeds: [new EmbedBuilder().setTitle('🔔 Roles pingues a chaque demande de ticket').setColor('#5865F2')],
+      components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
+    });
+  }
+  if (customId === 'tp_accessroles') {
+    const select = new RoleSelectMenuBuilder()
+      .setCustomId('tp_accessroles_select')
+      .setPlaceholder('Choisis les roles avec acces aux tickets (0 a 10)')
+      .setMinValues(0).setMaxValues(10);
+    return interaction.update({
+      embeds: [new EmbedBuilder().setTitle('🛡️ Roles pouvant accepter/renommer/fermer les tickets').setColor('#5865F2')],
+      components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
+    });
+  }
+  if (customId === 'tp_category') {
+    const select = new ChannelSelectMenuBuilder()
+      .setCustomId('tp_category_select')
+      .setPlaceholder('Choisis la categorie des salons de tickets')
+      .addChannelTypes(ChannelType.GuildCategory);
+    return interaction.update({
+      embeds: [new EmbedBuilder().setTitle('📁 Categorie des salons de tickets').setColor('#5865F2')],
+      components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
+    });
+  }
+  if (customId === 'tp_logs') {
+    const select = new ChannelSelectMenuBuilder()
+      .setCustomId('tp_logs_select')
+      .setPlaceholder('Choisis le salon de logs')
+      .addChannelTypes(ChannelType.GuildText);
+    const buttonsRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('tp_back').setLabel('Retour').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('tp_logs_disable').setLabel('Desactiver les logs').setStyle(ButtonStyle.Danger)
+    );
+    return interaction.update({
+      embeds: [new EmbedBuilder().setTitle('📝 Salon de logs (justifications de fermeture)').setColor('#5865F2')],
+      components: [new ActionRowBuilder().addComponents(select), buttonsRow]
+    });
+  }
+  if (customId === 'tp_logs_disable') {
+    const config = getGuildConfig(interaction.guild.id);
+    config.tickets.logChannelId = null;
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildTicketPanel(interaction.guild.id));
+  }
+  if (customId === 'tp_close') {
+    return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
+  }
+
+  // ---- Systeme de tickets (creation / acceptation / refus / fermeture) ----
   if (customId === 'ticket_create') {
     const config = getGuildConfig(interaction.guild.id);
     if (!config.tickets.panelChannelId) return interaction.reply({ content: 'Systeme de tickets non configure.', ephemeral: true });
@@ -455,10 +493,8 @@ async function handleButton(interaction) {
     modal.addComponents(new ActionRowBuilder().addComponents(descInput));
     return interaction.showModal(modal);
   }
-
   if (customId.startsWith('ticket_accept_')) return acceptTicket(interaction, customId.replace('ticket_accept_', ''));
   if (customId.startsWith('ticket_deny_')) return denyTicket(interaction, customId.replace('ticket_deny_', ''));
-
   if (customId.startsWith('ticket_close_')) {
     const channelId = customId.replace('ticket_close_', '');
     const config = getGuildConfig(interaction.guild.id);
@@ -471,6 +507,117 @@ async function handleButton(interaction) {
     return interaction.showModal(modal);
   }
 }
+
+/* ==========================================================================
+   MENUS DEROULANTS (salons / roles)
+   ========================================================================== */
+
+async function handleSelectMenu(interaction) {
+  const { customId } = interaction;
+  const config = getGuildConfig(interaction.guild.id);
+
+  if (customId === 'wp_channel_select') {
+    config.welcome.channelId = interaction.values[0];
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildWelcomePanel(interaction.guild.id));
+  }
+
+  if (customId === 'tp_channel_select') {
+    const channelId = interaction.values[0];
+    config.tickets.panelChannelId = channelId;
+    saveGuildConfig(interaction.guild.id, config);
+
+    const channel = interaction.guild.channels.cache.get(channelId);
+    if (channel) {
+      const embed = new EmbedBuilder()
+        .setTitle('Support - Creation de ticket')
+        .setDescription('Clique sur le bouton ci-dessous et decris ton probleme pour ouvrir un ticket.')
+        .setColor('#5865F2');
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_create').setLabel('Creer un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary)
+      );
+      await channel.send({ embeds: [embed], components: [row] });
+    }
+
+    await interaction.update(buildTicketPanel(interaction.guild.id));
+    if (channel) return interaction.followUp({ content: `Panneau publie dans ${channel}.`, ephemeral: true });
+    return;
+  }
+
+  if (customId === 'tp_pingroles_select') {
+    config.tickets.pingRoles = interaction.values;
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildTicketPanel(interaction.guild.id));
+  }
+
+  if (customId === 'tp_accessroles_select') {
+    config.tickets.accessRoles = interaction.values;
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildTicketPanel(interaction.guild.id));
+  }
+
+  if (customId === 'tp_category_select') {
+    config.tickets.categoryId = interaction.values[0];
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildTicketPanel(interaction.guild.id));
+  }
+
+  if (customId === 'tp_logs_select') {
+    config.tickets.logChannelId = interaction.values[0];
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildTicketPanel(interaction.guild.id));
+  }
+}
+
+/* ==========================================================================
+   FORMULAIRES (modals)
+   ========================================================================== */
+
+async function handleModal(interaction) {
+  const { customId } = interaction;
+  const config = getGuildConfig(interaction.guild.id);
+
+  if (customId === 'welcome_message_modal') {
+    config.welcome.title = interaction.fields.getTextInputValue('welcome_title');
+    config.welcome.description = interaction.fields.getTextInputValue('welcome_description');
+    config.welcome.footer = interaction.fields.getTextInputValue('welcome_footer') || null;
+    saveGuildConfig(interaction.guild.id, config);
+    if (interaction.isFromMessage()) return interaction.update(buildWelcomePanel(interaction.guild.id));
+    return interaction.reply({ content: 'Message de bienvenue mis a jour.', ephemeral: true });
+  }
+
+  if (customId === 'welcome_color_modal') {
+    const hex = interaction.fields.getTextInputValue('welcome_color_value');
+    if (isNaN(parseInt(hex.replace('#', ''), 16))) {
+      return interaction.reply({ content: 'Couleur invalide, exemple : `#5865F2`', ephemeral: true });
+    }
+    config.welcome.color = hex;
+    saveGuildConfig(interaction.guild.id, config);
+    if (interaction.isFromMessage()) return interaction.update(buildWelcomePanel(interaction.guild.id));
+    return interaction.reply({ content: 'Couleur mise a jour.', ephemeral: true });
+  }
+
+  if (customId === 'welcome_image_modal') {
+    const url = interaction.fields.getTextInputValue('welcome_image_value');
+    if (!url || url.toLowerCase() === 'reset') {
+      config.welcome.image = null;
+    } else if (!/^https?:\/\/.+/i.test(url)) {
+      return interaction.reply({ content: 'URL invalide (ou laisse vide / mets "reset" pour retirer).', ephemeral: true });
+    } else {
+      config.welcome.image = url;
+    }
+    saveGuildConfig(interaction.guild.id, config);
+    if (interaction.isFromMessage()) return interaction.update(buildWelcomePanel(interaction.guild.id));
+    return interaction.reply({ content: 'Image mise a jour.', ephemeral: true });
+  }
+
+  if (customId === 'ticket_create_modal') return handleTicketCreateModal(interaction);
+  if (customId.startsWith('ticket_close_modal_')) return handleTicketCloseModal(interaction, customId.replace('ticket_close_modal_', ''));
+}
+
+/* ==========================================================================
+   LOGIQUE DES TICKETS (creation / acceptation / refus / fermeture)
+   ========================================================================== */
 
 async function acceptTicket(interaction, ticketId) {
   const config = getGuildConfig(interaction.guild.id);
@@ -546,26 +693,6 @@ async function denyTicket(interaction, ticketId) {
 
   const requester = await interaction.guild.members.fetch(pending.requesterId).catch(() => null);
   if (requester) await requester.send(`Ta demande de ticket sur **${interaction.guild.name}** a ete refusee.`).catch(() => {});
-}
-
-/* ==========================================================================
-   FORMULAIRES (modals)
-   ========================================================================== */
-
-async function handleModal(interaction) {
-  const { customId } = interaction;
-  if (customId === 'welcome_message_modal') return handleWelcomeMessageModal(interaction);
-  if (customId === 'ticket_create_modal') return handleTicketCreateModal(interaction);
-  if (customId.startsWith('ticket_close_modal_')) return handleTicketCloseModal(interaction, customId.replace('ticket_close_modal_', ''));
-}
-
-async function handleWelcomeMessageModal(interaction) {
-  const config = getGuildConfig(interaction.guild.id);
-  config.welcome.title = interaction.fields.getTextInputValue('welcome_title');
-  config.welcome.description = interaction.fields.getTextInputValue('welcome_description');
-  config.welcome.footer = interaction.fields.getTextInputValue('welcome_footer') || null;
-  saveGuildConfig(interaction.guild.id, config);
-  return interaction.reply({ content: 'Message de bienvenue mis a jour. Utilise `/welcome test` pour previsualiser.', ephemeral: true });
 }
 
 async function handleTicketCreateModal(interaction) {

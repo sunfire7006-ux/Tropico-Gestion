@@ -22,11 +22,6 @@ const {
   AttachmentBuilder
 } = require('discord.js');
 
-/* ==========================================================================
-   STOCKAGE : simples fichiers JSON, un fichier de config + un fichier de
-   tickets par serveur Discord.
-   ========================================================================== */
-
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -73,10 +68,6 @@ function getTickets(guildId) {
 }
 function saveTickets(guildId, tickets) { writeJson(path.join(DATA_DIR, `tickets_${guildId}.json`), tickets); }
 
-/* ==========================================================================
-   PETITES FONCTIONS UTILES
-   ========================================================================== */
-
 function applyPlaceholders(text, member) {
   if (!text) return text;
   return text
@@ -118,10 +109,6 @@ const TICKET_CATEGORIES = [
 function getCategoryByValue(value) {
   return TICKET_CATEGORIES.find(c => c.value === value) || { value, label: value, emoji: '🎫' };
 }
-
-/* ==========================================================================
-   PANNEAU DE BIENVENUE (/panel-arrivee)
-   ========================================================================== */
 
 function buildWelcomePanel(guildId) {
   const config = getGuildConfig(guildId);
@@ -170,10 +157,6 @@ function buildBackRow(customId) {
   );
 }
 
-/* ==========================================================================
-   PANNEAU DE TICKETS (/ticket)
-   ========================================================================== */
-
 function buildTicketPanel(guildId) {
   const config = getGuildConfig(guildId);
   const t = config.tickets;
@@ -203,66 +186,25 @@ function buildTicketPanel(guildId) {
   return { embeds: [embed], components: [row1, row2] };
 }
 
-/* ==========================================================================
-   COMMANDE /help
-   ========================================================================== */
-
 function buildHelpEmbed() {
   return new EmbedBuilder()
     .setTitle('📖 Aide - Liste des commandes')
     .setColor('#5865F2')
     .addFields(
-      {
-        name: '/panel-arrivee',
-        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de bienvenue : salon, activer/desactiver, texte du message, couleur, image, avatar, MP au membre, et tester un apercu.'
-      },
-      {
-        name: '/ticket',
-        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de tickets : salon ou publier le menu "Tropico Ticket", roles pingues, roles avec acces aux tickets, categorie, salon de logs.'
-      },
-      {
-        name: '/rename-ticket <nom>',
-        value: 'A utiliser uniquement dans un salon de ticket deja ouvert. Renomme ce salon. Reserve aux membres ayant un role avec acces aux tickets.'
-      },
-      {
-        name: '/help',
-        value: 'Affiche ce message.'
-      },
-      {
-        name: 'Comment fonctionne un ticket ?',
-        value: '1) Un membre choisit une categorie (Gestion Abus, Gestion Staff, Animation, Ticket Owner) dans le menu deroulant du salon configure, puis decrit son probleme.\n2) La demande est postee avec les roles pingues et deux boutons Accepter/Refuser.\n3) Un membre avec acces clique Accepter : un salon prive est cree pour ce membre.\n4) Dans ce salon, `/rename-ticket` permet de le renommer, et le bouton "Fermer le ticket" demande une justification avant de fermer (envoyee dans le salon de logs si configure).'
-      }
+      { name: '/panel-arrivee', value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de bienvenue : salon, activer/desactiver, texte du message, couleur, image, avatar, MP au membre, et tester un apercu.' },
+      { name: '/ticket', value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de tickets : salon ou publier le menu "Tropico Ticket", roles pingues, roles avec acces aux tickets, categorie, salon de logs.' },
+      { name: '/rename-ticket <nom>', value: 'A utiliser uniquement dans un salon de ticket deja ouvert. Renomme ce salon. Reserve aux membres ayant un role avec acces aux tickets.' },
+      { name: '/help', value: 'Affiche ce message.' },
+      { name: 'Comment fonctionne un ticket ?', value: '1) Un membre choisit une categorie (Gestion Abus, Gestion Staff, Animation, Ticket Owner) dans le menu deroulant du salon configure, puis decrit son probleme.\n2) La demande est postee avec les roles pingues et deux boutons Accepter/Refuser.\n3) Un membre avec acces clique Accepter : un salon prive est cree pour ce membre.\n4) Dans ce salon, `/rename-ticket` permet de le renommer, et le bouton "Fermer le ticket" demande une justification avant de fermer (envoyee dans le salon de logs si configure).' }
     );
 }
 
-/* ==========================================================================
-   DEFINITION DES COMMANDES SLASH
-   ========================================================================== */
-
 const commandsData = [
-  new SlashCommandBuilder()
-    .setName('panel-arrivee')
-    .setDescription('Ouvre le panneau de configuration du systeme de bienvenue')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-
-  new SlashCommandBuilder()
-    .setName('ticket')
-    .setDescription('Ouvre le panneau de configuration du systeme de tickets')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-
-  new SlashCommandBuilder()
-    .setName('rename-ticket')
-    .setDescription('Renomme le salon de ticket actuel')
-    .addStringOption(opt => opt.setName('nom').setDescription('Nouveau nom').setRequired(true).setMaxLength(90)),
-
-  new SlashCommandBuilder()
-    .setName('help')
-    .setDescription('Affiche la liste des commandes et leur utilisation')
+  new SlashCommandBuilder().setName('panel-arrivee').setDescription('Ouvre le panneau de configuration du systeme de bienvenue').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder().setName('ticket').setDescription('Ouvre le panneau de configuration du systeme de tickets').setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder().setName('rename-ticket').setDescription('Renomme le salon de ticket actuel').addStringOption(opt => opt.setName('nom').setDescription('Nouveau nom').setRequired(true).setMaxLength(90)),
+  new SlashCommandBuilder().setName('help').setDescription('Affiche la liste des commandes et leur utilisation')
 ];
-
-/* ==========================================================================
-   CLIENT DISCORD
-   ========================================================================== */
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages]
@@ -300,25 +242,17 @@ client.on('guildMemberAdd', async (member) => {
   if (w.dmEnabled) {
     try {
       await member.send({ embeds: [buildWelcomeEmbed(member, w)] });
-    } catch (err) {
-      // Le membre a peut-etre desactive les MP, on ignore silencieusement
-    }
+    } catch (err) {}
   }
 });
 
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'panel-arrivee') {
-        return interaction.reply({ ...buildWelcomePanel(interaction.guild.id), ephemeral: true });
-      }
-      if (interaction.commandName === 'ticket') {
-        return interaction.reply({ ...buildTicketPanel(interaction.guild.id), ephemeral: true });
-      }
+      if (interaction.commandName === 'panel-arrivee') return interaction.reply({ ...buildWelcomePanel(interaction.guild.id), ephemeral: true });
+      if (interaction.commandName === 'ticket') return interaction.reply({ ...buildTicketPanel(interaction.guild.id), ephemeral: true });
       if (interaction.commandName === 'rename-ticket') return handleRenameTicketCommand(interaction);
-      if (interaction.commandName === 'help') {
-        return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
-      }
+      if (interaction.commandName === 'help') return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
     } else if (interaction.isButton()) {
       return handleButton(interaction);
     } else if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
@@ -335,10 +269,6 @@ client.on('interactionCreate', async (interaction) => {
     else await interaction.reply(payload).catch(() => {});
   }
 });
-
-/* ==========================================================================
-   /rename-ticket
-   ========================================================================== */
 
 async function handleRenameTicketCommand(interaction) {
   const config = getGuildConfig(interaction.guild.id);
@@ -359,22 +289,12 @@ async function handleRenameTicketCommand(interaction) {
   return interaction.reply({ content: `Salon renomme en **${newName}**.` });
 }
 
-/* ==========================================================================
-   BOUTONS
-   ========================================================================== */
-
 async function handleButton(interaction) {
   const { customId } = interaction;
 
-  // ---- Panneau de bienvenue ----
-  if (customId === 'wp_back') {
-    return interaction.update(buildWelcomePanel(interaction.guild.id));
-  }
+  if (customId === 'wp_back') return interaction.update(buildWelcomePanel(interaction.guild.id));
   if (customId === 'wp_channel') {
-    const select = new ChannelSelectMenuBuilder()
-      .setCustomId('wp_channel_select')
-      .setPlaceholder('Choisis le salon de bienvenue')
-      .addChannelTypes(ChannelType.GuildText);
+    const select = new ChannelSelectMenuBuilder().setCustomId('wp_channel_select').setPlaceholder('Choisis le salon de bienvenue').addChannelTypes(ChannelType.GuildText);
     return interaction.update({
       embeds: [new EmbedBuilder().setTitle('📌 Choisir le salon de bienvenue').setColor('#5865F2')],
       components: [new ActionRowBuilder().addComponents(select), buildBackRow('wp_back')]
@@ -404,32 +324,23 @@ async function handleButton(interaction) {
   if (customId === 'wp_message') {
     const config = getGuildConfig(interaction.guild.id);
     const modal = new ModalBuilder().setCustomId('welcome_message_modal').setTitle('Personnaliser le message de bienvenue');
-    const titleInput = new TextInputBuilder().setCustomId('welcome_title').setLabel('Titre ({user} {username} {server} {membercount})')
-      .setStyle(TextInputStyle.Short).setValue(config.welcome.title || '').setRequired(true).setMaxLength(256);
-    const descInput = new TextInputBuilder().setCustomId('welcome_description').setLabel('Description')
-      .setStyle(TextInputStyle.Paragraph).setValue(config.welcome.description || '').setRequired(true).setMaxLength(2000);
-    const footerInput = new TextInputBuilder().setCustomId('welcome_footer').setLabel('Footer (optionnel)')
-      .setStyle(TextInputStyle.Short).setValue(config.welcome.footer || '').setRequired(false).setMaxLength(256);
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(titleInput),
-      new ActionRowBuilder().addComponents(descInput),
-      new ActionRowBuilder().addComponents(footerInput)
-    );
+    const titleInput = new TextInputBuilder().setCustomId('welcome_title').setLabel('Titre ({user} {username} {server} {membercount})').setStyle(TextInputStyle.Short).setValue(config.welcome.title || '').setRequired(true).setMaxLength(256);
+    const descInput = new TextInputBuilder().setCustomId('welcome_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setValue(config.welcome.description || '').setRequired(true).setMaxLength(2000);
+    const footerInput = new TextInputBuilder().setCustomId('welcome_footer').setLabel('Footer (optionnel)').setStyle(TextInputStyle.Short).setValue(config.welcome.footer || '').setRequired(false).setMaxLength(256);
+    modal.addComponents(new ActionRowBuilder().addComponents(titleInput), new ActionRowBuilder().addComponents(descInput), new ActionRowBuilder().addComponents(footerInput));
     return interaction.showModal(modal);
   }
   if (customId === 'wp_color') {
     const config = getGuildConfig(interaction.guild.id);
     const modal = new ModalBuilder().setCustomId('welcome_color_modal').setTitle('Couleur du message de bienvenue');
-    const colorInput = new TextInputBuilder().setCustomId('welcome_color_value').setLabel('Code couleur hexadecimal (ex: #5865F2)')
-      .setStyle(TextInputStyle.Short).setValue(config.welcome.color || '#5865F2').setRequired(true).setMaxLength(7);
+    const colorInput = new TextInputBuilder().setCustomId('welcome_color_value').setLabel('Code couleur hexadecimal (ex: #5865F2)').setStyle(TextInputStyle.Short).setValue(config.welcome.color || '#5865F2').setRequired(true).setMaxLength(7);
     modal.addComponents(new ActionRowBuilder().addComponents(colorInput));
     return interaction.showModal(modal);
   }
   if (customId === 'wp_image') {
     const config = getGuildConfig(interaction.guild.id);
     const modal = new ModalBuilder().setCustomId('welcome_image_modal').setTitle('Image du message de bienvenue');
-    const imageInput = new TextInputBuilder().setCustomId('welcome_image_value').setLabel('URL de l\'image (ou "reset" pour retirer)')
-      .setStyle(TextInputStyle.Short).setValue(config.welcome.image || '').setRequired(false).setMaxLength(500);
+    const imageInput = new TextInputBuilder().setCustomId('welcome_image_value').setLabel('URL de l\'image (ou "reset" pour retirer)').setStyle(TextInputStyle.Short).setValue(config.welcome.image || '').setRequired(false).setMaxLength(500);
     modal.addComponents(new ActionRowBuilder().addComponents(imageInput));
     return interaction.showModal(modal);
   }
@@ -442,59 +353,39 @@ async function handleButton(interaction) {
     await interaction.update(buildWelcomePanel(interaction.guild.id));
     return interaction.followUp({ content: `Apercu envoye dans ${channel}.`, ephemeral: true });
   }
-  if (customId === 'wp_close') {
-    return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
-  }
+  if (customId === 'wp_close') return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
 
-  // ---- Panneau de tickets ----
-  if (customId === 'tp_back') {
-    return interaction.update(buildTicketPanel(interaction.guild.id));
-  }
+  if (customId === 'tp_back') return interaction.update(buildTicketPanel(interaction.guild.id));
   if (customId === 'tp_channel') {
-    const select = new ChannelSelectMenuBuilder()
-      .setCustomId('tp_channel_select')
-      .setPlaceholder('Choisis le salon ou publier le menu "Tropico Ticket"')
-      .addChannelTypes(ChannelType.GuildText);
+    const select = new ChannelSelectMenuBuilder().setCustomId('tp_channel_select').setPlaceholder('Choisis le salon ou publier le menu "Tropico Ticket"').addChannelTypes(ChannelType.GuildText);
     return interaction.update({
       embeds: [new EmbedBuilder().setTitle('📌 Choisir le salon du panneau ticket').setColor('#5865F2')],
       components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
     });
   }
   if (customId === 'tp_pingroles') {
-    const select = new RoleSelectMenuBuilder()
-      .setCustomId('tp_pingroles_select')
-      .setPlaceholder('Choisis les roles a ping (0 a 10)')
-      .setMinValues(0).setMaxValues(10);
+    const select = new RoleSelectMenuBuilder().setCustomId('tp_pingroles_select').setPlaceholder('Choisis les roles a ping (0 a 10)').setMinValues(0).setMaxValues(10);
     return interaction.update({
       embeds: [new EmbedBuilder().setTitle('🔔 Roles pingues a chaque demande de ticket').setColor('#5865F2')],
       components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
     });
   }
   if (customId === 'tp_accessroles') {
-    const select = new RoleSelectMenuBuilder()
-      .setCustomId('tp_accessroles_select')
-      .setPlaceholder('Choisis les roles avec acces aux tickets (0 a 10)')
-      .setMinValues(0).setMaxValues(10);
+    const select = new RoleSelectMenuBuilder().setCustomId('tp_accessroles_select').setPlaceholder('Choisis les roles avec acces aux tickets (0 a 10)').setMinValues(0).setMaxValues(10);
     return interaction.update({
       embeds: [new EmbedBuilder().setTitle('🛡️ Roles pouvant accepter/renommer/fermer les tickets').setColor('#5865F2')],
       components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
     });
   }
   if (customId === 'tp_category') {
-    const select = new ChannelSelectMenuBuilder()
-      .setCustomId('tp_category_select')
-      .setPlaceholder('Choisis la categorie des salons de tickets')
-      .addChannelTypes(ChannelType.GuildCategory);
+    const select = new ChannelSelectMenuBuilder().setCustomId('tp_category_select').setPlaceholder('Choisis la categorie des salons de tickets').addChannelTypes(ChannelType.GuildCategory);
     return interaction.update({
       embeds: [new EmbedBuilder().setTitle('📁 Categorie des salons de tickets').setColor('#5865F2')],
       components: [new ActionRowBuilder().addComponents(select), buildBackRow('tp_back')]
     });
   }
   if (customId === 'tp_logs') {
-    const select = new ChannelSelectMenuBuilder()
-      .setCustomId('tp_logs_select')
-      .setPlaceholder('Choisis le salon de logs')
-      .addChannelTypes(ChannelType.GuildText);
+    const select = new ChannelSelectMenuBuilder().setCustomId('tp_logs_select').setPlaceholder('Choisis le salon de logs').addChannelTypes(ChannelType.GuildText);
     const buttonsRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('tp_back').setLabel('Retour').setEmoji('⬅️').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('tp_logs_disable').setLabel('Desactiver les logs').setStyle(ButtonStyle.Danger)
@@ -510,11 +401,8 @@ async function handleButton(interaction) {
     saveGuildConfig(interaction.guild.id, config);
     return interaction.update(buildTicketPanel(interaction.guild.id));
   }
-  if (customId === 'tp_close') {
-    return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
-  }
+  if (customId === 'tp_close') return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
 
-  // ---- Systeme de tickets (acceptation / refus / fermeture) ----
   if (customId.startsWith('ticket_accept_')) return acceptTicket(interaction, customId.replace('ticket_accept_', ''));
   if (customId.startsWith('ticket_deny_')) return denyTicket(interaction, customId.replace('ticket_deny_', ''));
   if (customId.startsWith('ticket_close_')) {
@@ -523,8 +411,7 @@ async function handleButton(interaction) {
     const hasAccess = config.tickets.accessRoles.some(roleId => interaction.member.roles.cache.has(roleId));
     if (!hasAccess) return interaction.reply({ content: 'Tu n\'as pas le role necessaire pour fermer ce ticket.', ephemeral: true });
     const modal = new ModalBuilder().setCustomId(`ticket_close_modal_${channelId}`).setTitle('Fermer le ticket');
-    const reasonInput = new TextInputBuilder().setCustomId('close_reason').setLabel('Justification de la fermeture')
-      .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
+    const reasonInput = new TextInputBuilder().setCustomId('close_reason').setLabel('Justification de la fermeture').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
     modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
     return interaction.showModal(modal);
   }
@@ -539,15 +426,10 @@ async function handleTicketCategorySelect(interaction) {
   const category = getCategoryByValue(categoryValue);
 
   const modal = new ModalBuilder().setCustomId(`ticket_create_modal_${categoryValue}`).setTitle(`Ticket - ${category.label}`);
-  const descInput = new TextInputBuilder().setCustomId('ticket_description').setLabel('Decris ton probleme')
-    .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
+  const descInput = new TextInputBuilder().setCustomId('ticket_description').setLabel('Decris ton probleme').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
   modal.addComponents(new ActionRowBuilder().addComponents(descInput));
   return interaction.showModal(modal);
 }
-
-/* ==========================================================================
-   MENUS DEROULANTS (salons / roles)
-   ========================================================================== */
 
 async function handleSelectMenu(interaction) {
   const { customId } = interaction;
@@ -569,9 +451,7 @@ async function handleSelectMenu(interaction) {
       const bannerPath = path.join(__dirname, 'assets', 'ticket-banniere.png');
       const attachment = new AttachmentBuilder(bannerPath, { name: 'ticket-banniere.png' });
 
-      const categoriesText = TICKET_CATEGORIES
-        .map(c => `**${c.label}** ${c.emoji}\n${c.description}`)
-        .join('\n\n');
+      const categoriesText = TICKET_CATEGORIES.map(c => `**${c.label}** ${c.emoji}\n${c.description}`).join('\n\n');
 
       const embed = new EmbedBuilder()
         .setTitle('Tropico Ticket')
@@ -617,10 +497,6 @@ async function handleSelectMenu(interaction) {
   }
 }
 
-/* ==========================================================================
-   FORMULAIRES (modals)
-   ========================================================================== */
-
 async function handleModal(interaction) {
   const { customId } = interaction;
   const config = getGuildConfig(interaction.guild.id);
@@ -662,10 +538,6 @@ async function handleModal(interaction) {
   if (customId.startsWith('ticket_create_modal_')) return handleTicketCreateModal(interaction, customId.replace('ticket_create_modal_', ''));
   if (customId.startsWith('ticket_close_modal_')) return handleTicketCloseModal(interaction, customId.replace('ticket_close_modal_', ''));
 }
-
-/* ==========================================================================
-   LOGIQUE DES TICKETS (creation / acceptation / refus / fermeture)
-   ========================================================================== */
 
 async function acceptTicket(interaction, ticketId) {
   const config = getGuildConfig(interaction.guild.id);
@@ -802,10 +674,6 @@ async function handleTicketCloseModal(interaction, channelId) {
   saveTickets(interaction.guild.id, tickets);
   setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
 }
-
-/* ==========================================================================
-   DEMARRAGE
-   ========================================================================== */
 
 if (!process.env.DISCORD_TOKEN || !process.env.CLIENT_ID) {
   console.error('DISCORD_TOKEN et CLIENT_ID sont obligatoires (variables d\'environnement).');

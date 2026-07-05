@@ -17,7 +17,9 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ChannelSelectMenuBuilder,
-  RoleSelectMenuBuilder
+  RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  AttachmentBuilder
 } = require('discord.js');
 
 /* ==========================================================================
@@ -37,7 +39,8 @@ const DEFAULT_CONFIG = {
     color: '#5865F2',
     thumbnailEnabled: true,
     image: null,
-    footer: '{server}'
+    footer: '{server}',
+    dmEnabled: false
   },
   tickets: {
     panelChannelId: null,
@@ -99,11 +102,21 @@ function buildWelcomeEmbed(member, w) {
   return embed;
 }
 function generateTicketId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function sanitizeChannelName(username) {
+function sanitizeChannelName(categoryValue, username) {
   const clean = username.toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  return `ticket-${clean || 'membre'}`.slice(0, 90);
+  return `ticket-${categoryValue}-${clean || 'membre'}`.slice(0, 90);
+}
+
+const TICKET_CATEGORIES = [
+  { value: 'abus', label: 'Gestion Abus', emoji: '🚫', description: 'Signaler un abus ou un comportement inapproprie.' },
+  { value: 'staff', label: 'Gestion Staff', emoji: '🛠️', description: 'Demandes de recrutement, ou problemes lies a l\'equipe staff.' },
+  { value: 'animation', label: 'Animation', emoji: '🎗️', description: 'Demandes liees aux animations et evenements.' },
+  { value: 'owner', label: 'Ticket Owner', emoji: '👑', description: 'Demandes reservees aux proprietaires du serveur / demandes importantes.' }
+];
+function getCategoryByValue(value) {
+  return TICKET_CATEGORIES.find(c => c.value === value) || { value, label: value, emoji: '🎫' };
 }
 
 /* ==========================================================================
@@ -123,6 +136,7 @@ function buildWelcomePanel(guildId) {
       `**Couleur :** ${w.color}`,
       `**Avatar en miniature :** ${w.thumbnailEnabled ? 'Oui' : 'Non'}`,
       `**Image :** ${w.image ? 'Definie' : 'Aucune'}`,
+      `**Message prive (MP) au membre :** ${w.dmEnabled ? 'Oui' : 'Non'}`,
       '',
       `**Titre actuel :** ${w.title}`,
       `**Description actuelle :** ${w.description}`,
@@ -142,6 +156,7 @@ function buildWelcomePanel(guildId) {
     new ButtonBuilder().setCustomId('wp_image').setLabel('Image').setEmoji('🖼️').setStyle(ButtonStyle.Primary)
   );
   const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('wp_dm').setLabel(`MP au membre : ${w.dmEnabled ? 'ON' : 'OFF'}`).setEmoji('📩').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('wp_test').setLabel('Tester').setEmoji('🔎').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('wp_close').setLabel('Fermer').setEmoji('✖️').setStyle(ButtonStyle.Secondary)
   );
@@ -199,11 +214,11 @@ function buildHelpEmbed() {
     .addFields(
       {
         name: '/panel-arrivee',
-        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de bienvenue : salon, activer/desactiver, texte du message, couleur, image, avatar, et tester un apercu.'
+        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de bienvenue : salon, activer/desactiver, texte du message, couleur, image, avatar, MP au membre, et tester un apercu.'
       },
       {
         name: '/ticket',
-        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de tickets : salon ou publier le bouton "Creer un ticket", roles pingues, roles avec acces aux tickets, categorie, salon de logs.'
+        value: 'Ouvre un panneau avec des boutons pour tout regler sur le systeme de tickets : salon ou publier le menu "Tropico Ticket", roles pingues, roles avec acces aux tickets, categorie, salon de logs.'
       },
       {
         name: '/rename-ticket <nom>',
@@ -215,7 +230,7 @@ function buildHelpEmbed() {
       },
       {
         name: 'Comment fonctionne un ticket ?',
-        value: '1) Un membre clique sur "Creer un ticket" dans le salon configure et decrit son probleme.\n2) La demande est postee avec les roles pingues et deux boutons Accepter/Refuser.\n3) Un membre avec acces clique Accepter : un salon prive est cree pour ce membre.\n4) Dans ce salon, `/rename-ticket` permet de le renommer, et le bouton "Fermer le ticket" demande une justification avant de fermer (envoyee dans le salon de logs si configure).'
+        value: '1) Un membre choisit une categorie (Gestion Abus, Gestion Staff, Animation, Ticket Owner) dans le menu deroulant du salon configure, puis decrit son probleme.\n2) La demande est postee avec les roles pingues et deux boutons Accepter/Refuser.\n3) Un membre avec acces clique Accepter : un salon prive est cree pour ce membre.\n4) Dans ce salon, `/rename-ticket` permet de le renommer, et le bouton "Fermer le ticket" demande une justification avant de fermer (envoyee dans le salon de logs si configure).'
       }
     );
 }
@@ -281,6 +296,14 @@ client.on('guildMemberAdd', async (member) => {
   } catch (err) {
     console.error('Erreur envoi message de bienvenue :', err);
   }
+
+  if (w.dmEnabled) {
+    try {
+      await member.send({ embeds: [buildWelcomeEmbed(member, w)] });
+    } catch (err) {
+      // Le membre a peut-etre desactive les MP, on ignore silencieusement
+    }
+  }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -300,6 +323,8 @@ client.on('interactionCreate', async (interaction) => {
       return handleButton(interaction);
     } else if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
       return handleSelectMenu(interaction);
+    } else if (interaction.isStringSelectMenu()) {
+      return handleTicketCategorySelect(interaction);
     } else if (interaction.isModalSubmit()) {
       return handleModal(interaction);
     }
@@ -370,6 +395,12 @@ async function handleButton(interaction) {
     saveGuildConfig(interaction.guild.id, config);
     return interaction.update(buildWelcomePanel(interaction.guild.id));
   }
+  if (customId === 'wp_dm') {
+    const config = getGuildConfig(interaction.guild.id);
+    config.welcome.dmEnabled = !config.welcome.dmEnabled;
+    saveGuildConfig(interaction.guild.id, config);
+    return interaction.update(buildWelcomePanel(interaction.guild.id));
+  }
   if (customId === 'wp_message') {
     const config = getGuildConfig(interaction.guild.id);
     const modal = new ModalBuilder().setCustomId('welcome_message_modal').setTitle('Personnaliser le message de bienvenue');
@@ -422,7 +453,7 @@ async function handleButton(interaction) {
   if (customId === 'tp_channel') {
     const select = new ChannelSelectMenuBuilder()
       .setCustomId('tp_channel_select')
-      .setPlaceholder('Choisis le salon ou publier le bouton "Creer un ticket"')
+      .setPlaceholder('Choisis le salon ou publier le menu "Tropico Ticket"')
       .addChannelTypes(ChannelType.GuildText);
     return interaction.update({
       embeds: [new EmbedBuilder().setTitle('📌 Choisir le salon du panneau ticket').setColor('#5865F2')],
@@ -483,16 +514,7 @@ async function handleButton(interaction) {
     return interaction.update({ content: 'Panneau ferme.', embeds: [], components: [] });
   }
 
-  // ---- Systeme de tickets (creation / acceptation / refus / fermeture) ----
-  if (customId === 'ticket_create') {
-    const config = getGuildConfig(interaction.guild.id);
-    if (!config.tickets.panelChannelId) return interaction.reply({ content: 'Systeme de tickets non configure.', ephemeral: true });
-    const modal = new ModalBuilder().setCustomId('ticket_create_modal').setTitle('Ouvrir un ticket');
-    const descInput = new TextInputBuilder().setCustomId('ticket_description').setLabel('Decris ton probleme')
-      .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
-    modal.addComponents(new ActionRowBuilder().addComponents(descInput));
-    return interaction.showModal(modal);
-  }
+  // ---- Systeme de tickets (acceptation / refus / fermeture) ----
   if (customId.startsWith('ticket_accept_')) return acceptTicket(interaction, customId.replace('ticket_accept_', ''));
   if (customId.startsWith('ticket_deny_')) return denyTicket(interaction, customId.replace('ticket_deny_', ''));
   if (customId.startsWith('ticket_close_')) {
@@ -506,6 +528,21 @@ async function handleButton(interaction) {
     modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
     return interaction.showModal(modal);
   }
+}
+
+async function handleTicketCategorySelect(interaction) {
+  if (interaction.customId !== 'ticket_category_select') return;
+  const config = getGuildConfig(interaction.guild.id);
+  if (!config.tickets.panelChannelId) return interaction.reply({ content: 'Systeme de tickets non configure.', ephemeral: true });
+
+  const categoryValue = interaction.values[0];
+  const category = getCategoryByValue(categoryValue);
+
+  const modal = new ModalBuilder().setCustomId(`ticket_create_modal_${categoryValue}`).setTitle(`Ticket - ${category.label}`);
+  const descInput = new TextInputBuilder().setCustomId('ticket_description').setLabel('Decris ton probleme')
+    .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
+  modal.addComponents(new ActionRowBuilder().addComponents(descInput));
+  return interaction.showModal(modal);
 }
 
 /* ==========================================================================
@@ -529,14 +566,25 @@ async function handleSelectMenu(interaction) {
 
     const channel = interaction.guild.channels.cache.get(channelId);
     if (channel) {
+      const bannerPath = path.join(__dirname, 'assets', 'ticket-banniere.png');
+      const attachment = new AttachmentBuilder(bannerPath, { name: 'ticket-banniere.png' });
+
+      const categoriesText = TICKET_CATEGORIES
+        .map(c => `**${c.label}** ${c.emoji}\n${c.description}`)
+        .join('\n\n');
+
       const embed = new EmbedBuilder()
-        .setTitle('Support - Creation de ticket')
-        .setDescription('Clique sur le bouton ci-dessous et decris ton probleme pour ouvrir un ticket.')
-        .setColor('#5865F2');
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_create').setLabel('Creer un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary)
-      );
-      await channel.send({ embeds: [embed], components: [row] });
+        .setTitle('Tropico Ticket')
+        .setDescription(`Ce systeme te permet de contacter l'equipe du serveur selon le type de demande.\nChoisissez une option dans le menu ci-dessous.\n\n${categoriesText}`)
+        .setColor('#2b6cff')
+        .setImage('attachment://ticket-banniere.png');
+
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('ticket_category_select')
+        .setPlaceholder('Selectionnez une categorie de gestion...')
+        .addOptions(TICKET_CATEGORIES.map(c => ({ label: c.label, value: c.value, emoji: c.emoji, description: c.description })));
+
+      await channel.send({ embeds: [embed], files: [attachment], components: [new ActionRowBuilder().addComponents(select)] });
     }
 
     await interaction.update(buildTicketPanel(interaction.guild.id));
@@ -611,7 +659,7 @@ async function handleModal(interaction) {
     return interaction.reply({ content: 'Image mise a jour.', ephemeral: true });
   }
 
-  if (customId === 'ticket_create_modal') return handleTicketCreateModal(interaction);
+  if (customId.startsWith('ticket_create_modal_')) return handleTicketCreateModal(interaction, customId.replace('ticket_create_modal_', ''));
   if (customId.startsWith('ticket_close_modal_')) return handleTicketCloseModal(interaction, customId.replace('ticket_close_modal_', ''));
 }
 
@@ -646,8 +694,10 @@ async function acceptTicket(interaction, ticketId) {
     permissionOverwrites.push({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
   }
 
+  const category = getCategoryByValue(pending.category || 'ticket');
+
   const channel = await interaction.guild.channels.create({
-    name: sanitizeChannelName(requester.user.username),
+    name: sanitizeChannelName(pending.category || 'ticket', requester.user.username),
     type: ChannelType.GuildText,
     parent: config.tickets.categoryId || null,
     permissionOverwrites
@@ -656,7 +706,7 @@ async function acceptTicket(interaction, ticketId) {
   const accessRolesMention = config.tickets.accessRoles.map(id => `<@&${id}>`).join(' ');
   const welcomeEmbed = new EmbedBuilder()
     .setTitle('Ticket ouvert')
-    .setDescription(`Ticket ouvert par <@${requester.id}>.\n\n**Probleme decrit :**\n${pending.description}`)
+    .setDescription(`Ticket ouvert par <@${requester.id}>.\n**Categorie :** ${category.label} ${category.emoji}\n\n**Probleme decrit :**\n${pending.description}`)
     .setColor('#57F287').setFooter({ text: `Accepte par ${interaction.user.username}` }).setTimestamp();
 
   const closeRow = new ActionRowBuilder().addComponents(
@@ -695,18 +745,19 @@ async function denyTicket(interaction, ticketId) {
   if (requester) await requester.send(`Ta demande de ticket sur **${interaction.guild.name}** a ete refusee.`).catch(() => {});
 }
 
-async function handleTicketCreateModal(interaction) {
+async function handleTicketCreateModal(interaction, categoryValue) {
   const config = getGuildConfig(interaction.guild.id);
   const panelChannel = interaction.guild.channels.cache.get(config.tickets.panelChannelId);
   if (!panelChannel) return interaction.reply({ content: 'Systeme de tickets non configure.', ephemeral: true });
 
+  const category = getCategoryByValue(categoryValue);
   const description = interaction.fields.getTextInputValue('ticket_description');
   const ticketId = generateTicketId();
   const pingRolesMention = config.tickets.pingRoles.map(id => `<@&${id}>`).join(' ');
 
   const embed = new EmbedBuilder()
     .setTitle('Nouvelle demande de ticket')
-    .setDescription(`**Demandeur :** <@${interaction.user.id}>\n**Probleme :**\n${description}`)
+    .setDescription(`**Categorie :** ${category.label} ${category.emoji}\n**Demandeur :** <@${interaction.user.id}>\n**Probleme :**\n${description}`)
     .setColor('#FEE75C').setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -717,7 +768,7 @@ async function handleTicketCreateModal(interaction) {
   const requestMessage = await panelChannel.send({ content: pingRolesMention || undefined, embeds: [embed], components: [row] });
 
   const tickets = getTickets(interaction.guild.id);
-  tickets.pending[ticketId] = { requesterId: interaction.user.id, description, requestMessageId: requestMessage.id };
+  tickets.pending[ticketId] = { requesterId: interaction.user.id, description, requestMessageId: requestMessage.id, category: categoryValue };
   saveTickets(interaction.guild.id, tickets);
 
   return interaction.reply({ content: 'Ta demande a bien ete envoyee, patiente pendant qu\'un membre de l\'equipe la traite.', ephemeral: true });
